@@ -1,48 +1,71 @@
-  // app/lib/gmail.ts
-  import { EmailMessage } from "../types";
+// app/lib/gmail.ts
+import { google } from 'googleapis';
+import { SendEmailData } from '../types';
+
+export async function getGmailClient(accessToken: string) {
+  const oauth2Client = new google.auth.OAuth2();
+  oauth2Client.setCredentials({ access_token: accessToken });
   
-  export async function fetchEmails(accessToken: string): Promise<EmailMessage[]> {
-    try {
-      const response = await fetch(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
+  return google.gmail({ version: 'v1', auth: oauth2Client });
+}
+
+export async function listEmails(accessToken: string) {
+  const gmail = await getGmailClient(accessToken);
   
-      const data = await response.json();
-      const messages = await Promise.all(
-        data.messages.map(async (message: { id: string }) => {
-          const messageResponse = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-              },
-            }
-          );
-          const messageData = await messageResponse.json();
-          
-          const headers = messageData.payload.headers;
-          const subject = headers.find((h: any) => h.name === "Subject")?.value || "No Subject";
-          const from = headers.find((h: any) => h.name === "From")?.value || "Unknown";
-          const date = headers.find((h: any) => h.name === "Date")?.value || "";
+  const response = await gmail.users.messages.list({
+    userId: 'me',
+    maxResults: 10,
+  });
+
+  const messages = await Promise.all(
+    response.data.messages?.map(async (message) => {
+      const email = await gmail.users.messages.get({
+        userId: 'me',
+        id: message.id!,
+      });
+
+      const headers = email.data.payload?.headers;
+      const subject = headers?.find((h) => h.name === 'Subject')?.value;
+      const from = headers?.find((h) => h.name === 'From')?.value;
+      const date = headers?.find((h) => h.name === 'Date')?.value;
+
+      return {
+        id: email.data.id!,
+        subject: subject || 'No Subject',
+        from: from || 'Unknown',
+        date: date || new Date().toISOString(),
+        body: email.data.snippet || '',
+      };
+    }) || []
+  );
+
+  return messages;
+}
+
+export async function sendEmail(accessToken: string, emailData: SendEmailData) {
+  const gmail = await getGmailClient(accessToken);
   
-          return {
-            id: messageData.id,
-            snippet: messageData.snippet,
-            subject,
-            from,
-            date: new Date(date).toLocaleDateString(),
-          };
-        })
-      );
-  
-      return messages;
-    } catch (error) {
-      console.error("Error fetching emails:", error);
-      throw error;
-    }
-  }
+  const message = [
+    'Content-Type: text/plain; charset="UTF-8"\n',
+    'MIME-Version: 1.0\n',
+    `To: ${emailData.to}\n`,
+    'From: me\n',
+    `Subject: ${emailData.subject}\n\n`,
+    emailData.body
+  ].join('');
+
+  const encodedMessage = Buffer.from(message)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: {
+      raw: encodedMessage,
+    },
+  });
+
+  return res.data;
+}

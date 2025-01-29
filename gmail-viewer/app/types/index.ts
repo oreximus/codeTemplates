@@ -1,27 +1,15 @@
 // app/types/index.ts
 export interface EmailMessage {
-    id: string;
-    snippet: string;
-    subject: string;
-    from: string;
-    date: string;
-  }
+  id: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  body: string;
+}
   
-
-  
-
-  
-
-  
-  
-  
- 
-  
-  // app/layout.tsx
-  
-  
-  // app/providers.tsx
-  
-  
-  // middleware.ts
-  export { default } from "next-auth/middleware";
+export interface SendEmailData {
+  to: string;
+  subject: string;
+  body: string;
+}
