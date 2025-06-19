@@ -1,19 +1,9 @@
 const mysql = require("mysql2");
 const config = require("../db/config");
 const pool = mysql.createPool(config);
-const jwt = require("jsonwebtoken");
 const { bcryptHash } = require("../utils/common");
 const { uuid } = require("uuidv4");
-
-const token = jwt.sign(
-  { name: "Siddhart", age: "24" },
-  process.env.JWT_SECRET,
-  {
-    algorithm: "HS256",
-  },
-);
-
-console.log(token, "<===this is signed Token");
+const { genToken } = require("../helper/jwt_token");
 
 const createUser = async (req, res, next) => {
   const { first_name, last_name, email, password } = req.body;
@@ -69,4 +59,82 @@ const createUser = async (req, res, next) => {
   }
 };
 
-module.exports = createUser;
+const userLogin = async (req, res, next) => {
+  const { email, password } = req.body;
+
+  console.log(req.body, "<---this Request Data");
+
+  // check if the user exists
+  const ifUserExists = new Promise((resolve, reject) => {
+    const query = `SELECT 
+                   id,
+                   access_token,
+                   first_name,
+                   last_name,
+                   email,
+                   password,
+                   role
+                   from user WHERE email = ?`;
+    console.log(email, "<===this is email");
+    pool.query(query, [email], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+
+  const userData = ifUserExists
+    .then((resp) => {
+      console.log(resp, "<===THIS IS USER Data");
+      return resp;
+    })
+    .catch((err) => {
+      console.log(err, "<===THIS IS USER ERROR");
+      res.send("testing user login error");
+    });
+
+  // If user exists then register the user with the hashedPassword
+  if (ifUserExists) {
+    const payload = {
+      user_id: userData.id,
+      email: userData.email,
+      role: userData.role,
+    };
+
+    var access_token = genToken(payload);
+
+    const insertUser = new Promise((resolve, reject) => {
+      const query = `UPDATE user
+                     SET access_token = ?
+                     WHERE email = ?;`;
+      pool.query(query, [access_token, email], (err, results) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(results);
+        }
+      });
+    });
+
+    // try to check insertion process
+    try {
+      await insertUser;
+      res.status(200).json({
+        status: 200,
+        access_token: access_token,
+      });
+    } catch (err) {
+      console.log(err, "<==This is the error!");
+      res.send("Your User creation error: ", err);
+    }
+  } else {
+    res.send("User Not Exists");
+  }
+};
+
+module.exports = {
+  createUser,
+  userLogin,
+};
